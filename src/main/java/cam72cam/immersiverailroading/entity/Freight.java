@@ -20,11 +20,6 @@ import cam72cam.mod.item.Fuzzy;
 import cam72cam.mod.item.ItemStack;
 import cam72cam.mod.math.Vec3d;
 import cam72cam.mod.serialization.TagField;
-import com.flansmod.common.driveables.DriveableData;
-import com.flansmod.common.driveables.DriveableType;
-import com.flansmod.common.driveables.EnumDriveablePart;
-import com.flansmod.common.driveables.EntityVehicle;
-import com.flansmod.common.driveables.VehicleType;
 import net.minecraft.nbt.NBTTagCompound;
 
 import java.util.List;
@@ -75,7 +70,7 @@ public abstract class Freight extends EntityCoupleableRollingStock {
 	 * 
 	 * EntityRollingStock Overrides
 	 */
-	
+
 	@Override
 	public void onAssemble() {
 		super.onAssemble();
@@ -172,82 +167,51 @@ public abstract class Freight extends EntityCoupleableRollingStock {
 			return false;
 		}
 
-		// Check if flatcar is stationary
 		if (!Config.ConfigFlanVehicle.allowDockWhileMoving && !getCurrentSpeed().isZero()) {
 			player.sendMessage(cam72cam.mod.text.PlayerMessage.direct("Cannot undock: train is moving"));
 			return false;
 		}
 
-		// Find safe spawn position
 		Vec3d spawnPos = findSafeUndockPosition(player);
 		if (spawnPos == null) {
 			player.sendMessage(cam72cam.mod.text.PlayerMessage.direct("Cannot undock: insufficient clearance"));
 			return false;
 		}
 
-		// Restore the Flan vehicle
 		FlanVehicleCargo cargo = flanVehicleCargo;
-		VehicleType type = VehicleType.getVehicle(cargo.vehicleType);
-		if (type == null) {
-			player.sendMessage(cam72cam.mod.text.PlayerMessage.direct("Cannot undock: vehicle type not found"));
+		if (!cam72cam.immersiverailroading.thirdparty.FlanVehicleHelper.isFlanLoaded()) {
+			player.sendMessage(cam72cam.mod.text.PlayerMessage.direct("Cannot undock: Flan's Mod not installed"));
 			return false;
 		}
 
-		// Create the vehicle entity
-		EntityVehicle vehicle = new EntityVehicle(getWorld(), spawnPos.x, spawnPos.y, spawnPos.z, cargo.rotationYaw, type, restoreDriveableData(cargo));
-		vehicle.setOwner(cargo.ownerName != null ? com.hfr.faction.Factions.getFactionFromName(cargo.ownerName) : null);
-		vehicle.locked = cargo.locked;
-		vehicle.stolen = cargo.stolen;
-		
-		// Restore parts health
-		for (int i = 0; i < EnumDriveablePart.values().length; i++) {
-			EnumDriveablePart part = EnumDriveablePart.values()[i];
-			DriveablePart driveablePart = vehicle.getDriveableData().parts.get(part);
-			if (driveablePart != null && i < cargo.partsHealth.length) {
-				driveablePart.health = cargo.partsHealth[i];
-				driveablePart.maxHealth = cargo.partsMaxHealth[i];
-				driveablePart.onFire = cargo.partsOnFire[i];
-				driveablePart.crew = cargo.partsCrew[i];
-			}
-		}
+		cam72cam.immersiverailroading.thirdparty.FlanVehicleHelper.spawnVehicle(this, cargo, player);
 
-		getWorld().spawnEntityInWorld(vehicle);
-		
-		// Place player in driver's seat
-		player.mountEntity(vehicle.seats[0]);
-		
-		// Clear cargo
 		clearFlanVehicleCargo();
 		
 		return true;
 	}
 
 	private Vec3d findSafeUndockPosition(Player player) {
-		// Try to spawn on the side of the flatcar where the player is
 		Vec3d flatcarPos = getPosition();
 		Vec3d playerPos = player.getPosition();
 		
-		// Calculate direction from flatcar to player
 		double dx = playerPos.x - flatcarPos.x;
 		double dz = playerPos.z - flatcarPos.z;
 		
-		// Normalize and offset by vehicle size
 		double dist = Math.sqrt(dx * dx + dz * dz);
 		if (dist < 0.1) {
 			dist = 1;
 		}
 		
-		double offset = 3.0; // Distance from flatcar center
+		double offset = 3.0;
 		double spawnX = flatcarPos.x + (dx / dist) * offset;
 		double spawnZ = flatcarPos.z + (dz / dist) * offset;
-		double spawnY = flatcarPos.y + 1.5; // Above flatcar deck
+		double spawnY = flatcarPos.y + 1.5;
 		
-		// Check if position is clear
 		if (isPositionClear(spawnX, spawnY, spawnZ)) {
 			return new Vec3d(spawnX, spawnY, spawnZ);
 		}
 		
-		// Try other positions around the flatcar
 		for (int i = 0; i < 8; i++) {
 			double angle = i * Math.PI / 4;
 			double testX = flatcarPos.x + Math.cos(angle) * offset;
@@ -261,12 +225,10 @@ public abstract class Freight extends EntityCoupleableRollingStock {
 	}
 
 	private boolean isPositionClear(double x, double y, double z) {
-		// If clearance checking is disabled, always return true
 		if (!Config.ConfigFlanVehicle.checkClearance) {
 			return true;
 		}
 		
-		// Check for collisions with blocks and entities
 		net.minecraft.util.AxisAlignedBB box = net.minecraft.util.AxisAlignedBB.getBoundingBox(x - 1.5, y, z - 1.5, x + 1.5, y + 3.0, z + 1.5);
 		List<net.minecraft.entity.Entity> entities = getWorld().getEntitiesWithinAABBExcludingEntity(null, box);
 		for (net.minecraft.entity.Entity entity : entities) {
@@ -275,7 +237,6 @@ public abstract class Freight extends EntityCoupleableRollingStock {
 			}
 		}
 		
-		// Check for solid blocks
 		for (int bx = (int)Math.floor(x - 1.5); bx <= (int)Math.floor(x + 1.5); bx++) {
 			for (int by = (int)Math.floor(y); by <= (int)Math.floor(y + 2.5); by++) {
 				for (int bz = (int)Math.floor(z - 1.5); bz <= (int)Math.floor(z + 1.5); bz++) {
@@ -291,7 +252,6 @@ public abstract class Freight extends EntityCoupleableRollingStock {
 	}
 
 	private Vec3d getCargoAnchorPosition() {
-		// Get the cargo anchor from the model
 		FreightModel<?, ?> model = (FreightModel<?, ?>) this.getDefinition().getModel();
 		if (model != null && model.flanVehicleRenderer != null && !model.flanVehicleRenderer.getComponents().isEmpty()) {
 			ModelComponent comp = model.flanVehicleRenderer.getComponents().get(0);
@@ -299,60 +259,7 @@ public abstract class Freight extends EntityCoupleableRollingStock {
 			Vec3d localPos = new Vec3d(comp.center.x, comp.min.y, comp.center.z);
 			return matrix.apply(localPos);
 		}
-		return getPosition().add(0, 1.5, 0); // Fallback
-	}
-
-	private DriveableData restoreDriveableData(FlanVehicleCargo cargo) {
-		DriveableData data = new DriveableData(new NBTTagCompound());
-		data.paintjobID = cargo.paintjobID;
-		data.fuelInTank = cargo.fuelInTank;
-		
-		if (cargo.fuel != null) {
-			data.fuel = net.minecraft.item.ItemStack.loadItemStackFromNBT(cargo.fuel);
-		}
-		
-		// Restore inventories
-		if (cargo.ammo != null) {
-			data.ammo = new net.minecraft.item.ItemStack[cargo.ammo.length];
-			for (int i = 0; i < cargo.ammo.length; i++) {
-				if (cargo.ammo[i] != null) {
-					data.ammo[i] = net.minecraft.item.ItemStack.loadItemStackFromNBT(cargo.ammo[i]);
-				}
-			}
-		}
-		
-		if (cargo.bombs != null) {
-			data.bombs = new net.minecraft.item.ItemStack[cargo.bombs.length];
-			for (int i = 0; i < cargo.bombs.length; i++) {
-				if (cargo.bombs[i] != null) {
-					data.bombs[i] = net.minecraft.item.ItemStack.loadItemStackFromNBT(cargo.bombs[i]);
-				}
-			}
-		}
-		
-		if (cargo.missiles != null) {
-			data.missiles = new net.minecraft.item.ItemStack[cargo.missiles.length];
-			for (int i = 0; i < cargo.missiles.length; i++) {
-				if (cargo.missiles[i] != null) {
-					data.missiles[i] = net.minecraft.item.ItemStack.loadItemStackFromNBT(cargo.missiles[i]);
-				}
-			}
-		}
-		
-		if (cargo.cargo != null) {
-			data.cargo = new net.minecraft.item.ItemStack[cargo.cargo.length];
-			for (int i = 0; i < cargo.cargo.length; i++) {
-				if (cargo.cargo[i] != null) {
-					data.cargo[i] = net.minecraft.item.ItemStack.loadItemStackFromNBT(cargo.cargo[i]);
-				}
-			}
-		}
-		
-		data.seatBelt = cargo.seatBelt;
-		data.emergencyMode = cargo.emergencyMode;
-		data.WarpLimit = cargo.warpLimit;
-		
-		return data;
+		return getPosition().add(0, 1.5, 0);
 	}
 
 	protected boolean openGui(Player player) {
@@ -391,7 +298,6 @@ public abstract class Freight extends EntityCoupleableRollingStock {
                   ItemStack remaining = stack;
                   for (int i = tankOffset; i < inventorySize; i++) {
                       if ((remaining = cargoItems.insert(i, remaining, false)).getCount() == 0) {
-                          //All items are gone, goodbye
                           entity.kill();
                           return;
                       }
@@ -403,16 +309,12 @@ public abstract class Freight extends EntityCoupleableRollingStock {
     }
 
     public Set<ItemEntity> getNearbyItems() {
-        //Bypass RealBB's grow
         IBoundingBox grow = this.getBounds();
         List<ItemEntity> itemEntities = getWorld().getEntitiesWithinBB(grow, ItemEntity.class);
         FreightModel<?, ?> model = (FreightModel<?, ?>) this.getDefinition().getModel();
         return model.filterItems(this, itemEntities);
     }
 
-	/**
-	 * Handle mass depending on item count
-	 */
 	protected void handleMass() {
 		int itemInsideCount = 0;
 		int stacksWithStuff = 0;

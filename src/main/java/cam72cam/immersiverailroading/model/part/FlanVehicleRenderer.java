@@ -8,21 +8,17 @@ import cam72cam.immersiverailroading.model.components.ModelComponent;
 import cam72cam.mod.entity.boundingbox.IBoundingBox;
 import cam72cam.mod.math.Vec3d;
 import cam72cam.mod.render.opengl.RenderState;
-import com.flansmod.client.model.ModelDriveable;
-import com.flansmod.client.model.ModelVehicle;
-import com.flansmod.client.tmt.ModelRendererTurbo;
-import com.flansmod.common.driveables.VehicleType;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.texture.TextureManager;
-import org.lwjgl.opengl.GL11;
-import util.Matrix4;
+import net.minecraft.util.ResourceLocation;
 
+import java.lang.reflect.Array;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.List;
 
 public class FlanVehicleRenderer {
     private final List<ModelComponent> components;
     public final List<IBoundingBox> boxes;
-    private ModelVehicle cachedModel;
+    private Object cachedModel;
     private long lastUpdateTick = -1;
     private String lastVehicleType = "";
     private int lastPaintjobID = -1;
@@ -33,7 +29,17 @@ public class FlanVehicleRenderer {
 
     public static FlanVehicleRenderer get(ComponentProvider provider) {
         List<ModelComponent> found = provider.parseAll(ModelComponentType.FLAN_VEHICLE);
-        return found.isEmpty() ? null : new FlanVehicleRenderer(found);
+        if (found.isEmpty()) {
+            return null;
+        }
+        try {
+            Class.forName("com.flansmod.client.model.ModelVehicle");
+            Class.forName("com.flansmod.client.tmt.ModelRendererTurbo");
+            Class.forName("com.flansmod.common.driveables.VehicleType");
+        } catch (ClassNotFoundException e) {
+            return null;
+        }
+        return new FlanVehicleRenderer(found);
     }
 
     public FlanVehicleRenderer(List<ModelComponent> components) {
@@ -69,114 +75,98 @@ public class FlanVehicleRenderer {
 
                 state.pushMatrix();
                 matrix.applyGL();
-                renderVehicleStatic(cachedModel, cargo);
+                try {
+                    renderVehicleStatic(cargo);
+                } catch (Exception e) {
+                    cachedModel = null;
+                }
                 state.popMatrix();
             }
         }
     }
 
     private void rebuildModel(FlanVehicleCargo cargo) {
-        VehicleType type = VehicleType.getVehicle(cargo.vehicleType);
-        if (type == null || type.model == null) {
+        try {
+            Class<?> vehicleTypeClass = Class.forName("com.flansmod.common.driveables.VehicleType");
+            Method getVehicle = vehicleTypeClass.getMethod("getVehicle", String.class);
+            Object type = getVehicle.invoke(null, cargo.vehicleType);
+            if (type == null) {
+                cachedModel = null;
+                return;
+            }
+            Field modelField = vehicleTypeClass.getField("model");
+            cachedModel = modelField.get(type);
+        } catch (Exception e) {
             cachedModel = null;
-            return;
         }
-
-        cachedModel = (ModelVehicle) type.model;
     }
 
-    private void renderVehicleStatic(ModelVehicle model, FlanVehicleCargo cargo) {
-        TextureManager textureManager = Minecraft.getMinecraft().getTextureManager();
-        VehicleType type = VehicleType.getVehicle(cargo.vehicleType);
+    private void renderVehicleStatic(FlanVehicleCargo cargo) throws Exception {
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
+        Field textureManagerField = mc.getClass().getDeclaredField("textureManager");
+        textureManagerField.setAccessible(true);
+        Object textureManager = textureManagerField.get(mc);
+
+        Class<?> vehicleTypeClass = Class.forName("com.flansmod.common.driveables.VehicleType");
+        Method getVehicle = vehicleTypeClass.getMethod("getVehicle", String.class);
+        Object type = getVehicle.invoke(null, cargo.vehicleType);
         if (type != null) {
-            textureManager.bindTexture(com.flansmod.client.FlansModResourceHandler.getPaintjobTexture(type.getPaintjob(cargo.paintjobID)));
+            try {
+                Class<?> resHandlerClass = Class.forName("com.flansmod.client.FlansModResourceHandler");
+                Method getPaintjobTexture = resHandlerClass.getMethod("getPaintjobTexture", Class.forName("com.flansmod.common.driveables.DriveableType"), int.class);
+                Object texture = getPaintjobTexture.invoke(null, type, cargo.paintjobID);
+                if (texture instanceof ResourceLocation) {
+                    Method bindTexture = textureManager.getClass().getMethod("bindTexture", ResourceLocation.class);
+                    bindTexture.invoke(textureManager, texture);
+                }
+            } catch (Exception e) {
+            }
         }
 
-        GL11.glPushMatrix();
-        GL11.glScalef(cargo.rotationPitch != 0 ? 1.0f : 1.0f, 1.0f, 1.0f);
-        
-        // Render body model
-        for (com.flansmod.client.tmt.ModelRendererTurbo bodyModel : model.bodyModel) {
-            bodyModel.render(0.0625f, model.oldRotateOrder);
-        }
-        
-        // Render doors (default closed)
-        for (com.flansmod.client.tmt.ModelRendererTurbo doorModel : model.bodyDoorCloseModel) {
-            doorModel.render(0.0625f, model.oldRotateOrder);
-        }
-        
-        // Render turret and barrel (static)
-        if (model.turretModel != null && model.turretModel.length > 0) {
-            GL11.glPushMatrix();
-            GL11.glScalef(model.turretScale.x, model.turretScale.y, model.turretScale.z);
-            GL11.glTranslatef(model.turretTrans.x, model.turretTrans.y, model.turretTrans.z);
-            for (com.flansmod.client.tmt.ModelRendererTurbo turretPart : model.turretModel) {
-                turretPart.render(0.0625f, model.oldRotateOrder);
-            }
-            for (com.flansmod.client.tmt.ModelRendererTurbo barrelPart : model.barrelModel) {
-                barrelPart.render(0.0625f, model.oldRotateOrder);
-            }
-            GL11.glPopMatrix();
-        }
-        
-        // Render wheels (static)
-        renderWheelsStatic(model);
-        
-        // Render tracks (static)
-        renderTracksStatic(model);
-        
-        // Render trailer
-        for (com.flansmod.client.tmt.ModelRendererTurbo trailerPart : model.trailerModel) {
-            trailerPart.render(0.0625f, model.oldRotateOrder);
-        }
-        
-        GL11.glPopMatrix();
+        renderModelField(cachedModel, "bodyModel");
+        renderModelField(cachedModel, "bodyDoorCloseModel");
+        renderModelField(cachedModel, "turretModel");
+        renderModelField(cachedModel, "barrelModel");
+        renderModelField(cachedModel, "trailerModel");
+        renderModelField(cachedModel, "leftBackWheelModel");
+        renderModelField(cachedModel, "rightBackWheelModel");
+        renderModelField(cachedModel, "leftFrontWheelModel");
+        renderModelField(cachedModel, "rightFrontWheelModel");
+        renderModelField(cachedModel, "frontWheelModel");
+        renderModelField(cachedModel, "backWheelModel");
+        renderModelField(cachedModel, "leftTrackModel");
+        renderModelField(cachedModel, "rightTrackModel");
+        renderModelField(cachedModel, "leftTrackWheelModels");
+        renderModelField(cachedModel, "rightTrackWheelModels");
+        renderAnimTrackField(cachedModel, "leftAnimTrackModel");
+        renderAnimTrackField(cachedModel, "rightAnimTrackModel");
     }
-    
-    private void renderWheelsStatic(ModelVehicle model) {
-        for (com.flansmod.client.tmt.ModelRendererTurbo wheel : model.leftBackWheelModel) {
-            wheel.render(0.0625f, model.oldRotateOrder);
-        }
-        for (com.flansmod.client.tmt.ModelRendererTurbo wheel : model.rightBackWheelModel) {
-            wheel.render(0.0625f, model.oldRotateOrder);
-        }
-        for (com.flansmod.client.tmt.ModelRendererTurbo wheel : model.leftFrontWheelModel) {
-            wheel.render(0.0625f, model.oldRotateOrder);
-        }
-        for (com.flansmod.client.tmt.ModelRendererTurbo wheel : model.rightFrontWheelModel) {
-            wheel.render(0.0625f, model.oldRotateOrder);
-        }
-        for (com.flansmod.client.tmt.ModelRendererTurbo wheel : model.frontWheelModel) {
-            wheel.render(0.0625f, model.oldRotateOrder);
-        }
-        for (com.flansmod.client.tmt.ModelRendererTurbo wheel : model.backWheelModel) {
-            wheel.render(0.0625f, model.oldRotateOrder);
-        }
+
+    private void renderModelField(Object model, String fieldName) throws Exception {
+        Field field = model.getClass().getField(fieldName);
+        Object parts = field.get(model);
+        if (parts == null) return;
+        renderParts(parts);
     }
-    
-    private void renderTracksStatic(ModelVehicle model) {
-        for (com.flansmod.client.tmt.ModelRendererTurbo track : model.leftTrackModel) {
-            track.render(0.0625f, model.oldRotateOrder);
-        }
-        for (com.flansmod.client.tmt.ModelRendererTurbo track : model.rightTrackModel) {
-            track.render(0.0625f, model.oldRotateOrder);
-        }
-        for (com.flansmod.client.tmt.ModelRendererTurbo wheel : model.leftTrackWheelModels) {
-            wheel.render(0.0625f, model.oldRotateOrder);
-        }
-        for (com.flansmod.client.tmt.ModelRendererTurbo wheel : model.rightTrackWheelModels) {
-            wheel.render(0.0625f, model.oldRotateOrder);
-        }
-        // Render first animation frame of tracks
-        if (model.leftAnimTrackModel != null && model.leftAnimTrackModel.length > 0 && model.leftAnimTrackModel[0] != null) {
-            for (com.flansmod.client.tmt.ModelRendererTurbo track : model.leftAnimTrackModel[0]) {
-                track.render(0.0625f, model.oldRotateOrder);
-            }
-        }
-        if (model.rightAnimTrackModel != null && model.rightAnimTrackModel.length > 0 && model.rightAnimTrackModel[0] != null) {
-            for (com.flansmod.client.tmt.ModelRendererTurbo track : model.rightAnimTrackModel[0]) {
-                track.render(0.0625f, model.oldRotateOrder);
-            }
+
+    private void renderAnimTrackField(Object model, String fieldName) throws Exception {
+        Field field = model.getClass().getField(fieldName);
+        Object trackArrays = field.get(model);
+        if (trackArrays == null || Array.getLength(trackArrays) == 0) return;
+        Object firstArray = Array.get(trackArrays, 0);
+        if (firstArray == null) return;
+        renderParts(firstArray);
+    }
+
+    private void renderParts(Object parts) throws Exception {
+        Class<?> rendererClass = Class.forName("com.flansmod.client.tmt.ModelRendererTurbo");
+        Method renderMethod = rendererClass.getMethod("render", float.class, int.class);
+        Field oldRotateOrderField = rendererClass.getField("oldRotateOrder");
+        int length = Array.getLength(parts);
+        for (int i = 0; i < length; i++) {
+            Object part = Array.get(parts, i);
+            int oldRotateOrder = oldRotateOrderField.getInt(part);
+            renderMethod.invoke(part, 0.0625f, oldRotateOrder);
         }
     }
 }
