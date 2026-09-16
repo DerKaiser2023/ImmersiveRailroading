@@ -3,8 +3,9 @@ package cam72cam.immersiverailroading.model;
 import cam72cam.immersiverailroading.entity.EntityMoveableRollingStock;
 import cam72cam.immersiverailroading.model.components.ComponentProvider;
 import cam72cam.immersiverailroading.model.part.CargoFill;
-import cam72cam.immersiverailroading.entity.Freight;
 import cam72cam.immersiverailroading.model.part.CargoItems;
+import cam72cam.immersiverailroading.model.part.FlanVehicleRenderer;
+import cam72cam.immersiverailroading.entity.Freight;
 import cam72cam.immersiverailroading.registry.FreightDefinition;
 import cam72cam.mod.entity.ItemEntity;
 import cam72cam.mod.math.Vec3d;
@@ -17,6 +18,7 @@ import java.util.stream.Collectors;
 public class FreightModel<ENTITY extends Freight, DEFINITION extends FreightDefinition> extends StockModel<ENTITY, DEFINITION> {
     private CargoFill cargoFill;
     private CargoItems cargoItems;
+    public FlanVehicleRenderer flanVehicleRenderer;
     private boolean hasCargo;
 
     public FreightModel(DEFINITION def) throws Exception {
@@ -27,7 +29,8 @@ public class FreightModel<ENTITY extends Freight, DEFINITION extends FreightDefi
         super.parseComponents(provider, def);
         this.cargoFill = CargoFill.get(provider, rocking, def.shouldShowCurrentLoadOnly(), null);
         this.cargoItems = CargoItems.get(provider);
-        this.hasCargo = this.cargoFill != null || this.cargoItems != null;
+        this.flanVehicleRenderer = FlanVehicleRenderer.get(provider);
+        this.hasCargo = this.cargoFill != null || this.cargoItems != null || this.flanVehicleRenderer != null;
     }
 
     @Override
@@ -36,6 +39,9 @@ public class FreightModel<ENTITY extends Freight, DEFINITION extends FreightDefi
 
         if (cargoItems != null) {
             cargoItems.postRender(stock, state);
+        }
+        if (flanVehicleRenderer != null) {
+            flanVehicleRenderer.postRender(stock, state, partialTicks);
         }
     }
 
@@ -51,6 +57,9 @@ public class FreightModel<ENTITY extends Freight, DEFINITION extends FreightDefi
                 }
                 if (this.cargoItems != null) {
                     flag |= this.cargoItems.boxes.stream().anyMatch(box -> box.contains(point1));
+                }
+                if (this.flanVehicleRenderer != null) {
+                    flag |= this.flanVehicleRenderer.boxes.stream().anyMatch(box -> box.contains(point1));
                 }
                 return flag;
             }).collect(Collectors.toSet());

@@ -31,6 +31,8 @@ run/
 TrackAPI/
 ImmersiveRailroadingIntegration/
 UniversalModCore/
+docs/
+flans-mod/
 
 ## Generated
 build.gradle

@@ -249,6 +249,35 @@ public class Config {
 		public static boolean RoundStockTankToNearestBucket = true;
 	}
 
+	@Name("flanVehicle")
+	public static class ConfigFlanVehicle {
+		@Comment("Enable Flan's Mod vehicle transport on IR flatcars")
+		public static boolean enabled = true;
+
+		@Comment("Maximum distance in blocks to dock a Flan vehicle to a flatcar")
+		@Range(min = 1.0, max = 10.0)
+		public static double dockRange = 4.0;
+
+		@Comment("Allow docking while the train is moving")
+		public static boolean allowDockWhileMoving = false;
+
+		@Comment("Require flatcar to be empty (no other cargo) to dock a vehicle")
+		public static boolean requireEmptyFlatcar = true;
+
+		@Comment("Maximum number of vehicles per flatcar (currently only 1 supported)")
+		@Range(min = 1, max = 4)
+		public static int maxVehiclesPerFlatcar = 1;
+
+		@Comment("Require player permission to dock/undock vehicles")
+		public static boolean requirePermission = true;
+
+		@Comment("Check for clearance before undocking vehicle")
+		public static boolean checkClearance = true;
+
+		@Comment("Automatically undock when player tries to enter the vehicle")
+		public static boolean autoUndockOnEnter = true;
+	}
+
 	@Name("performance")
 	public static class ConfigPerformance {
 		@Comment("Use multiple threads when loading stock. This is used on Minecraft's initial load or when manually reloading stocks.")
